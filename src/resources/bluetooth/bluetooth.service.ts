@@ -28,10 +28,6 @@ export class BluetoothService {
   }
 
   private onDiscover(peripheral: Peripheral) {
-    // if (this.store.peripherals[peripheral.address]) {
-    //   return;
-    // }
-
     this.store = {
       ...this.store,
       peripherals: {
@@ -78,7 +74,8 @@ export class BluetoothService {
       ...this.store,
       peripherals_connected,
     };
-    await peripheral.discoverAllServicesAndCharacteristicsAsync();
+    console.log(peripheral.advertisement.serviceUuids);
+    await peripheral.discoverServices(peripheral.advertisement.serviceUuids);
   }
 
   private async onPeripheralDisconnect(
