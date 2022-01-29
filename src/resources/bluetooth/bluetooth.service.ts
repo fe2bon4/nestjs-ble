@@ -1,18 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import Noble, { Peripheral } from '@abandonware/noble';
+import Noble, { Characteristic, Peripheral, Service } from '@abandonware/noble';
 import { omit } from 'lodash';
 
 @Injectable()
 export class BluetoothService {
   private store: Record<string, any> = {
     state: '',
-    services: [],
-    characteristics: [],
+    services: {},
     peripherals: {},
     peripherals_connected: {},
   };
   private serviceName = 'Noble';
   private noble: typeof Noble = require('@abandonware/noble');
+  private messages = []
 
   private onScanStart() {
     Logger.log('Scan Started', this.serviceName);
@@ -63,6 +63,92 @@ export class BluetoothService {
     });
   }
 
+  public async getServices() {
+    return Object.keys(this.store.services).map(key => {
+      const { 
+        uuid,
+        name,
+        type,
+      }: Service = this.store.services[key].service 
+
+      return {
+        uuid,
+        name,
+        type
+      }
+    })
+  }
+
+  public async getServiceCharacteristics(service_id: string) {
+    const service = this.store.services[service_id]
+    
+    if(!service) return []
+
+    return service.characteristics.map( (characteristic: Characteristic) => {
+      const { uuid, descriptors, name, properties} = characteristic
+      return { uuid, descriptors, name, properties}
+    })
+
+  }
+
+  public async writeToCharacteristic({
+    service_id,
+    characteristic_id,
+    payload
+  }: any) {
+    const service = this.store.services[service_id]
+
+    if(!service) return false
+
+    const characteristic:Characteristic | null = service.characteristics.find(sCharacteristic=> sCharacteristic.uuid === characteristic_id)
+
+    if(!characteristic) return false;
+
+
+    const bufferedPayload = Buffer.from( JSON.stringify(payload))
+    // char
+
+    console.log(payload, bufferedPayload.length)
+ 
+    return new Promise((resolve)=>{
+         characteristic.write(bufferedPayload, true,(error) => {
+           if(error) {
+             resolve(false)
+           } resolve(true)
+         })
+    })
+  }
+
+  public async readFromCharacteristic({
+    service_id,
+    characteristic_id
+  }:any) {
+    const service = this.store.services[service_id]
+
+    if(!service) {
+      Logger.log(`Service ${service_id} not found`, this.serviceName)
+      return false
+    }
+
+    const characteristic:Characteristic | null = service.characteristics.find(sCharacteristic=> sCharacteristic.uuid === characteristic_id)
+
+    if(!characteristic) return false
+
+    const data = await characteristic.readAsync().then((data:Buffer)=> data.toString());
+
+    try {
+      return  JSON.parse(data)
+    } catch (e ) {
+      return data
+    }
+
+
+  }
+
+  public async subscribeToCharacteristic({}: any) {
+
+  }
+
   private async onPeripheralConnect(peripheral: Peripheral) {
     Logger.log(`Connected to ${peripheral.address}`, this.serviceName);
 
@@ -74,42 +160,57 @@ export class BluetoothService {
       ...this.store,
       peripherals_connected,
     };
-    console.log(peripheral.advertisement.serviceUuids);
-    await peripheral.discoverServices(peripheral.advertisement.serviceUuids);
+    
+    await peripheral.discoverAllServicesAndCharacteristicsAsync();
   }
 
   private async onPeripheralDisconnect(
     address: string,
-    peripheral: Peripheral,
   ) {
     Logger.log(`Disconnected from ${address}`, this.serviceName);
     this.store = {
       ...this.store,
-      peripherals_connected: {
-        ...this.store.peripherals_connected,
-        [address]: peripheral,
-      },
+      services: {}
     };
+    this.messages = []
   }
 
-  private onPeripheralServiceDiscover(
+  private onCharacteristicDiscover(peripheral:Peripheral, service:Service, characteristics:Array<Characteristic>) {
+
+    Logger.log(`Populated Characteristics ${service.uuid}:${characteristics.length}`, this.serviceName)
+
+    characteristics.forEach(characteristic => {
+      Logger.log(`Sevice [${service.uuid}] characteristic: ${characteristic.uuid}, properties: ${characteristic.properties} `, this.serviceName)
+    })
+
+    this.store.services = {
+      ...this.store.services,
+      [service.uuid]: {
+        service,
+        characteristics
+      }
+    }
+  }
+
+  private onServiceDiscover(
     peripheral: Peripheral,
-    services: Array<any>,
+    services: Array<Service>,
   ) {
-    console.log(`Peripheral Discover`, services);
+    services.forEach(service => service.on('characteristicsDiscover', this.onCharacteristicDiscover.bind(this, peripheral, service)))
   }
 
   public async connect(address: string) {
     const peripheral: Peripheral = this.store.peripherals[address];
 
     peripheral.once('connect', this.onPeripheralConnect.bind(this, peripheral));
+
     peripheral.once(
       'disconnect',
       this.onPeripheralDisconnect.bind(this, peripheral),
     );
     peripheral.once(
       'servicesDiscover',
-      this.onPeripheralServiceDiscover.bind(this, peripheral),
+      this.onServiceDiscover.bind(this, peripheral),
     );
 
     return await peripheral.connectAsync();

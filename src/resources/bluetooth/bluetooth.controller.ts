@@ -5,7 +5,9 @@ import {
   Get,
   HttpException,
   NotFoundException,
+  Param,
   Post,
+  Put,
 } from '@nestjs/common';
 import { BluetoothService } from './bluetooth.service';
 
@@ -74,5 +76,61 @@ export class BluetoothController {
       entity: 'peripheral',
       payload: peripherals,
     };
+  }
+
+   @Get('/services')
+  async getServices() {
+    const services = await this.bluetoothService.getServices();
+    return {
+      message: 'ok',
+      entity: 'service',
+      payload: services,
+    };
+  }
+
+  @Get('/characteristics/:service_id')
+  async getServiceCharactistics(@Param('service_id') service_id) {
+    const characteristics = await this.bluetoothService.getServiceCharacteristics(service_id);
+    return {
+      message: 'ok',
+      entity: 'characteristic',
+      payload: characteristics,
+    };
+  }
+
+  @Put('/characteristic/:service_id/:characteristic_id')
+  async writeToCharacteristic(
+    @Param('service_id') service_id,
+    @Param('characteristic_id') characteristic_id,
+    @Body() payload) {
+
+    const response = await this.bluetoothService.writeToCharacteristic({
+      service_id,
+      characteristic_id,
+      payload
+    })
+
+
+    return {
+      message:'okay',
+      payload: response
+    }
+  }
+
+   @Get('/characteristic/:service_id/:characteristic_id')
+  async readFromCharacteristic(
+    @Param('service_id') service_id,
+    @Param('characteristic_id') characteristic_id)
+  {
+
+    const payload = await this.bluetoothService.readFromCharacteristic({
+      service_id,
+      characteristic_id
+    })
+
+    return {
+      payload
+    }
+
   }
 }
